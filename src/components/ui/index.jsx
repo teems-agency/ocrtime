@@ -1,4 +1,4 @@
-import { clsx } from 'clsx'
+import { useState } from 'react'
 
 // ── BUTTON ────────────────────────────────────────────────────────────────────
 export function Btn({ children, onClick, variant = 'primary', size = 'md', icon, loading, disabled, style, type = 'button' }) {
@@ -187,8 +187,11 @@ export function PageHeader({ title, sub, action }) {
 }
 
 // ── INLINE TIME EDIT ──────────────────────────────────────────────────────────
+// Inline helpers to avoid import issues
+const _parseTime = (s) => { if (!s || /^(dnc|dnf)$/i.test(String(s).trim())) return null; const n = parseFloat(s); return isNaN(n) ? null : n }
+const _formatTime = (t, m = false) => { if (t == null) return '—'; if (m) { const mm = Math.floor(t / 60); const ss = (t % 60).toFixed(2).padStart(5, '0'); return `${mm}:${ss}` } return t.toFixed(2) + 's' }
+
 export function TimeCell({ value, onChange, isMinutes = false, width = 100 }) {
-  const { useState } = require('react')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value || '')
 
@@ -206,12 +209,11 @@ export function TimeCell({ value, onChange, isMinutes = false, width = 100 }) {
     )
   }
 
-  const { parseTime, formatTime } = require('../lib/constants')
-  const parsed = parseTime(value)
+  const parsed = _parseTime(value)
   return (
     <span onClick={() => { setDraft(value || ''); setEditing(true) }}
       style={{ width, display: 'inline-block', cursor: 'text', padding: '3px 8px', borderRadius: 5, background: parsed != null ? 'var(--blue-bg)' : 'var(--gray-alt)', fontFamily: 'var(--font-mono)', fontSize: 13, color: parsed != null ? 'var(--blue)' : 'var(--text-muted)', fontWeight: parsed != null ? 700 : 400, border: `1px solid ${parsed != null ? 'var(--blue)' : 'var(--border)'}` }}>
-      {parsed != null ? formatTime(parsed, isMinutes) : '—'}
+      {parsed != null ? _formatTime(parsed, isMinutes) : '—'}
     </span>
   )
 }
