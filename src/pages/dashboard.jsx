@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { Timer, Users, Trophy, Settings, ChevronDown, ChevronUp, Download, Upload } from 'lucide-react'
+import Link from 'next/link'
 import Navbar from '../components/Navbar'
-import { Card, Btn, CatBadge, Bib, Empty, PageHeader, StatusBadge, WristbandDots, Counter, Toast } from '../components/ui'
+import { Card, Btn, Bib, CatBadge, Empty, PageHeader, Toast } from '../components/ui'
 import WaveTiming from '../components/timing/WaveTiming'
 import SprintTiming from '../components/timing/SprintTiming'
 import PentathlonTiming from '../components/timing/PentathlonTiming'
 import { getSupabase } from '../lib/supabase'
-import { DISCIPLINES, AGE_GROUPS, getFlag, calcXCResult, formatTime } from '../lib/constants'
+import { DISCIPLINES, getFlag } from '../lib/constants'
+import { Timer, Users, Trophy, Plus, Search, Download, Instagram, Phone, Edit, Eye } from 'lucide-react'
 
 export default function Dashboard({ user, authLoading }) {
   const router = useRouter()
@@ -18,88 +19,101 @@ export default function Dashboard({ user, authLoading }) {
   const [athletes, setAthletes] = useState([])
   const [registrations, setRegistrations] = useState([])
   const [activeDisc, setActiveDisc] = useState(null)
-  const [activeSub, setActiveSub] = useState('timing') // 'timing' | 'athletes' | 'results'
+  const [activeSub, setActiveSub] = useState('timing')
+  const [raceState, setRaceState] = useState({})
+  const [checks, setChecks] = useState({})
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [athleteSearch, setAthleteSearch] = useState('')
+  const [allAthletes, setAllAthletes] = useState([])
   const L = lang === 'es'
 
   const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000) }
 
-  useEffect(() => {
-    if (!authLoading && !user) router.push('/auth')
-  }, [user, authLoading, router])
-
-  useEffect(() => {
-    if (!user) return
-    loadData()
-  }, [user])
+  useEffect(() => { if (!authLoading && !user) router.push('/auth') }, [user, authLoading])
+  useEffect(() => { if (user) loadData() }, [user])
+  useEffect(() => { if (selectedEventId) loadRegistrations(selectedEventId) }, [selectedEventId])
 
   const loadData = async () => {
-    const supabase = getSupabase()
     setLoading(true)
     const [{ data: evts }, { data: aths }] = await Promise.all([
-      supabase.from('events').select('*').eq('created_by', user.id).order('created_at', { ascending: false }),
-      supabase.from('athletes').select('*').order('bib'),
+      getSupabase().from('events').select('*').eq('created_by', user.id).order('created_at', { ascending: false }),
+      getSupabase().from('athletes').select('*').order('bib'),
     ])
     setEvents(evts || [])
-    setAthletes(aths || [])
+    setAllAthletes(aths || [])
     setLoading(false)
   }
 
-  useEffect(() => {
-    if (!selectedEventId) return
-    loadRegistrations(selectedEventId)
-  }, [selectedEventId])
-
   const loadRegistrations = async (evId) => {
-    const supabase = getSupabase()
-    const { data } = await supabase.from('registrations').select('*').eq('event_id', evId)
-    setRegistrations((data || []).map(r => ({
-      athId: r.athlete_id, disc: r.discipline, cat: r.category, ag: r.age_group
-    })))
+    const { data } = await getSupabase().from('registrations').select('*, athletes(*)').eq('event_id', evId)
+    setRegistrations(data || [])
+    setAthletes((data || []).map(r => r.athletes).filter(Boolean))
   }
+
+  const gRS = (eid) => raceState[eid] || {}
+  const sRS = (eid, fn) => setRaceState(p => ({ ...p, [eid]: fn(p[eid] || {}) }))
 
   const selectedEvent = events.find(e => e.id === selectedEventId)
   const eventDiscs = selectedEvent?.disciplines || []
+  const discRegs = registrations.filter(r => r.discipline === activeDisc)
 
-  // Build registrations for current discipline
-  const discRegs = registrations.filter(r => r.disc === activeDisc)
-
-  if (authLoading || loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gray-bg)' }}>
-        <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
-      </div>
-    )
+  const addAthleteToEvent = async (ath) => {
+    if (!selectedEventId || !activeDisc) { showToast(L ? 'Seleccioná una modalidad primero' : 'Select a discipline first', 'error'); return }
+    if (registrations.find(r => r.athlete_id === ath.id && r.discipline === activeDisc)) { showToast(L ? 'Ya inscripto en esta modalidad' : 'Already registered in this discipline', 'error'); return }
+    const { error } = await getSupabase().from('registrations').insert({ event_id: selectedEventId, athlete_id: ath.id, discipline: activeDisc, category: ath.category || 'agegroup', age_group: ath.category === 'elite' ? null : (ath.age_group || 'senior_2529'), registered_by: user.id })
+    if (error) { showToast(error.message, 'error'); return }
+    showToast(`${ath.full_name} ${L ? 'agregado' : 'added'} ✓`)
+    loadRegistrations(selectedEventId)
+    setAthleteSearch('')
   }
+
+  const publishEvent = async () => {
+    const { error } = await getSupabase().from('events').update({ is_published: true }).eq('id', selectedEventId)
+    if (error) { showToast(error.message, 'error'); return }
+    setEvents(p => p.map(e => e.id === selectedEventId ? { ...e, is_published: true } : e))
+    showToast(L ? 'Evento publicado ✓' : 'Event published ✓')
+  }
+
+  const exportCSV = () => {
+    const rows = registrations.map(r => { const a = r.athletes; if (!a) return null; const c = checks[a.id] || {}; return [a.bib, a.full_name, a.email || '', a.whatsapp || '', a.country || '', a.instagram || '', r.discipline, r.category, r.age_group || '', c.paid ? 'yes' : 'no', c.waiver ? 'yes' : 'no', c.medical ? 'yes' : 'no'] }).filter(Boolean)
+    const csv = [['bib','name','email','whatsapp','country','instagram','discipline','category','age_group','paid','waiver','medical'], ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `${selectedEvent?.name || 'event'}-athletes.csv`; a.click()
+    showToast('CSV exported ✓')
+  }
+
+  const setCheck = (athId, field, val) => setChecks(p => ({ ...p, [athId]: { ...(p[athId] || {}), [field]: val } }))
+
+  const filteredAllAthletes = allAthletes.filter(a =>
+    !registrations.find(r => r.athlete_id === a.id && r.discipline === activeDisc) &&
+    (athleteSearch === '' || a.full_name?.toLowerCase().includes(athleteSearch.toLowerCase()) || a.bib?.includes(athleteSearch))
+  ).slice(0, 8)
+
+  if (authLoading || loading) return (
+    <div style={{ minHeight: '100vh', background: 'var(--gray-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font)' }}>Cargando…</div>
+    </div>
+  )
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--gray-bg)' }}>
       <Navbar user={user} lang={lang} setLang={setLang} darkMode={darkMode} setDarkMode={setDarkMode} />
       {toast && <Toast message={toast.msg} type={toast.type} />}
-
       <div style={{ maxWidth: 1360, margin: '0 auto', padding: '28px 22px' }}>
-        <PageHeader
-          title={L ? 'Panel de organizador' : 'Organizer dashboard'}
-          sub={L ? 'Cronometración en vivo por modalidad y categoría.' : 'Live timing per discipline and category.'}
-        />
+        <PageHeader title={L ? 'Panel de organizador' : 'Organizer dashboard'} sub={L ? 'Cronometración en vivo · Atletas · Resultados' : 'Live timing · Athletes · Results'} action={<Link href="/events/create"><Btn icon={<Plus size={13}/>} size="sm">{L ? 'Nuevo evento' : 'New event'}</Btn></Link>} />
 
         {/* Event selector */}
         <Card style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-            {L ? 'Evento activo' : 'Active event'}
-          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>{L ? 'Seleccioná el evento activo' : 'Select active event'}</div>
           {events.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-              {L ? 'No tenés eventos. ' : 'No events yet. '}
-              <a href="/events/create" style={{ color: 'var(--blue)' }}>{L ? 'Crear evento →' : 'Create event →'}</a>
-            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{L ? 'No tenés eventos. ' : 'No events yet. '}<Link href="/events/create" style={{ color: 'var(--blue)' }}>{L ? 'Crear →' : 'Create →'}</Link></div>
           ) : (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {events.map(e => (
                 <button key={e.id} onClick={() => { setSelectedEventId(e.id); setActiveDisc(null) }}
-                  style={{ padding: '6px 14px', border: `1.5px solid ${selectedEventId === e.id ? 'var(--blue)' : 'var(--border)'}`, borderRadius: 20, background: selectedEventId === e.id ? 'var(--blue-bg)' : 'transparent', color: selectedEventId === e.id ? 'var(--blue)' : 'var(--text-sec)', fontSize: 12, fontWeight: selectedEventId === e.id ? 600 : 400, cursor: 'pointer', fontFamily: 'var(--font)' }}>
-                  {e.name} {selectedEventId === e.id && '✓'}
+                  style={{ padding: '8px 16px', border: `1.5px solid ${selectedEventId === e.id ? 'var(--blue)' : 'var(--border)'}`, borderRadius: 20, background: selectedEventId === e.id ? 'var(--blue-bg)' : 'transparent', color: selectedEventId === e.id ? 'var(--blue)' : 'var(--text-sec)', fontSize: 13, fontWeight: selectedEventId === e.id ? 700 : 400, cursor: 'pointer', fontFamily: 'var(--font)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {e.name}
+                  <span style={{ fontSize: 9, background: e.is_published ? 'var(--green)' : '#946000', color: '#fff', padding: '1px 5px', borderRadius: 6, fontWeight: 700 }}>{e.is_published ? 'LIVE' : 'DRAFT'}</span>
                 </button>
               ))}
             </div>
@@ -107,77 +121,123 @@ export default function Dashboard({ user, authLoading }) {
         </Card>
 
         {selectedEvent && (
-          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
-            {/* LEFT: Discipline sidebar */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Card style={{ padding: '8px 0' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '6px 14px 8px' }}>
-                  {L ? 'MODALIDADES' : 'DISCIPLINES'}
+          <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, alignItems: 'start' }}>
+            {/* Sidebar */}
+            <div>
+              <Card style={{ padding: '12px', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedEvent.name}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <Link href={`/events/${selectedEventId}`} style={{ fontSize: 12, color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}><Eye size={11}/>{L ? 'Ver público' : 'View public'}</Link>
+                  <Link href={`/events/edit/${selectedEventId}`} style={{ fontSize: 12, color: 'var(--text-sec)', display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}><Edit size={11}/>{L ? 'Editar evento' : 'Edit event'}</Link>
+                  {!selectedEvent.is_published && <button onClick={publishEvent} style={{ fontSize: 12, color: 'var(--green)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', display: 'flex', alignItems: 'center', gap: 5, padding: 0 }}>✓ {L ? 'Publicar' : 'Publish'}</button>}
                 </div>
-                {eventDiscs.map(dId => {
-                  const disc = DISCIPLINES.find(d => d.id === dId)
-                  if (!disc) return null
-                  const count = registrations.filter(r => r.disc === dId).length
-                  return (
-                    <button key={dId} onClick={() => { setActiveDisc(dId); setActiveSub('timing') }}
-                      style={{ display: 'flex', flexDirection: 'column', width: '100%', padding: '10px 14px', background: activeDisc === dId ? disc.bg : 'transparent', border: 'none', borderLeft: `3px solid ${activeDisc === dId ? disc.color : 'transparent'}`, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}>
-                      <span style={{ fontWeight: 600, fontSize: 13, color: activeDisc === dId ? disc.color : 'var(--text)' }}>{disc.label}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{count} {L ? 'atletas' : 'athletes'}</span>
-                    </button>
-                  )
-                })}
+              </Card>
+              <Card style={{ padding: '8px 0' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '4px 12px 8px' }}>MODALIDADES</div>
+                {eventDiscs.map(dId => { const disc = DISCIPLINES.find(d => d.id === dId); if (!disc) return null; const count = registrations.filter(r => r.discipline === dId).length; return (
+                  <button key={dId} onClick={() => { setActiveDisc(dId); setActiveSub('timing') }}
+                    style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '9px 12px', background: activeDisc === dId ? disc.bg : 'transparent', border: 'none', borderLeft: `3px solid ${activeDisc === dId ? disc.color : 'transparent'}`, cursor: 'pointer', textAlign: 'left', gap: 8 }}>
+                    <span style={{ fontSize: 14 }}>{disc.icon}</span>
+                    <div><div style={{ fontWeight: 600, fontSize: 12, color: activeDisc === dId ? disc.color : 'var(--text)' }}>{disc.label}</div><div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{count} {L ? 'atletas' : 'ath.'}</div></div>
+                  </button>
+                )})}
               </Card>
             </div>
 
-            {/* RIGHT: Content */}
+            {/* Main */}
             <div>
-              {!activeDisc ? (
-                <Card>
-                  <Empty label={L ? 'Seleccioná una modalidad para cronometrar' : 'Select a discipline to start timing'} />
-                </Card>
-              ) : (
+              {!activeDisc ? <Card><Empty label={L ? 'Seleccioná una modalidad' : 'Select a discipline'} /></Card> : (
                 <>
-                  {/* Sub tabs */}
                   <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
-                    {[['timing', L ? 'Cronometrar' : 'Timing', <Timer size={13} />], ['athletes', L ? 'Atletas' : 'Athletes', <Users size={13} />], ['results', L ? 'Resultados' : 'Results', <Trophy size={13} />]].map(([id, label, icon]) => (
-                      <button key={id} onClick={() => setActiveSub(id)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '9px 16px', background: 'none', border: 'none', cursor: 'pointer', color: activeSub === id ? 'var(--blue)' : 'var(--text-muted)', fontWeight: activeSub === id ? 700 : 400, fontSize: 13, fontFamily: 'var(--font)', borderBottom: `2px solid ${activeSub === id ? 'var(--blue)' : 'transparent'}` }}>
-                        {icon}{label}
-                      </button>
+                    {[['timing', L ? 'Cronometrar' : 'Timing'], ['athletes', L ? 'Atletas' : 'Athletes'], ['results', L ? 'Resultados' : 'Results']].map(([id, label]) => (
+                      <button key={id} onClick={() => setActiveSub(id)} style={{ padding: '8px 16px', background: 'none', border: 'none', cursor: 'pointer', color: activeSub === id ? 'var(--blue)' : 'var(--text-muted)', fontWeight: activeSub === id ? 700 : 400, fontSize: 13, fontFamily: 'var(--font)', borderBottom: `2px solid ${activeSub === id ? 'var(--blue)' : 'transparent'}` }}>{label}</button>
                     ))}
                   </div>
 
-                  {/* TIMING */}
                   {activeSub === 'timing' && (() => {
                     const disc = DISCIPLINES.find(d => d.id === activeDisc)
-                    const isXCDisc = ['short', 'standard'].includes(activeDisc)
-                    const isSprintDisc = ['ocr100', 'ocr400'].includes(activeDisc)
-                    const isPenta = activeDisc === 'pentathlon'
+                    const regs = discRegs.map(r => ({ athId: r.athlete_id, disc: r.discipline, cat: r.category, ag: r.age_group }))
                     return (
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', background: disc.bg, border: `1px solid ${disc.color}33`, borderRadius: 8 }}>
-                          <span style={{ fontSize: 18 }}>{disc.icon || '◉'}</span>
-                          <div>
-                            <div style={{ fontWeight: 700, color: disc.color }}>{disc.label}</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{L ? disc.descriptionEs : disc.description}</div>
-                          </div>
+                          <span style={{ fontSize: 18 }}>{disc.icon}</span>
+                          <div><div style={{ fontWeight: 700, color: disc.color, fontSize: 14 }}>{disc.label}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{L ? disc.descriptionEs : disc.description}</div></div>
+                          <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>{discRegs.length} {L ? 'inscriptos' : 'registered'}</div>
                         </div>
-                        {isSprintDisc && <SprintTiming discipline={activeDisc} athletes={athletes} registrations={registrations} lang={lang} />}
-                        {isXCDisc && <WaveTiming event={selectedEvent} discipline={activeDisc} athletes={athletes} registrations={registrations} lang={lang} />}
-                        {isPenta && <PentathlonTiming athletes={athletes} registrations={registrations} lang={lang} />}
-                        {activeDisc === 'teamrelay' && <TeamRelayTiming athletes={athletes} registrations={discRegs} lang={lang} />}
+                        {['ocr100','ocr400'].includes(activeDisc) && <SprintTiming discipline={activeDisc} athletes={athletes} registrations={regs} lang={lang} />}
+                        {['short','standard'].includes(activeDisc) && <WaveTiming event={selectedEvent} discipline={activeDisc} athletes={athletes} registrations={regs} lang={lang} />}
+                        {activeDisc === 'pentathlon' && <PentathlonTiming athletes={athletes} registrations={regs} lang={lang} />}
+                        {activeDisc === 'teamrelay' && <TeamRelayTiming athletes={athletes} lang={lang} />}
                       </div>
                     )
                   })()}
 
-                  {/* ATHLETES */}
                   {activeSub === 'athletes' && (
-                    <AthleteChecklist athletes={athletes} registrations={discRegs} lang={lang} showToast={showToast} />
+                    <div>
+                      <Card style={{ marginBottom: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{L ? 'Agregar atleta' : 'Add athlete'}</div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <Btn onClick={exportCSV} variant="ghost" icon={<Download size={12}/>} size="sm">CSV</Btn>
+                            <Link href="/athletes/create"><Btn variant="ghost" icon={<Plus size={12}/>} size="sm">{L ? 'Nuevo' : 'New'}</Btn></Link>
+                          </div>
+                        </div>
+                        <div style={{ position: 'relative', marginBottom: 8 }}>
+                          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                          <input value={athleteSearch} onChange={e => setAthleteSearch(e.target.value)} placeholder={L ? 'Buscar por nombre o dorsal…' : 'Search by name or bib…'} style={{ width: '100%', padding: '8px 10px 8px 30px', border: '1px solid var(--border)', borderRadius: 7, fontSize: 13, fontFamily: 'var(--font)', outline: 'none', background: 'var(--gray-alt)', color: 'var(--text)', boxSizing: 'border-box' }} />
+                        </div>
+                        {athleteSearch && filteredAllAthletes.length > 0 && (
+                          <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                            {filteredAllAthletes.map(a => (
+                              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', background: '#fff' }}>
+                                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--blue)', overflow: 'hidden', flexShrink: 0 }}>
+                                  {a.photo_url ? <img src={a.photo_url} style={{ width: 28, height: 28, objectFit: 'cover' }}/> : a.full_name?.[0]}
+                                </div>
+                                <Bib n={a.bib} /><span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{a.full_name}</span>
+                                <span style={{ fontSize: 12 }}>{getFlag(a.country)}</span>
+                                <CatBadge cat={a.category || 'agegroup'} />
+                                <Btn onClick={() => addAthleteToEvent(a)} size="sm" icon={<Plus size={11}/>}>{L ? 'Agregar' : 'Add'}</Btn>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                      <Card>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{L ? `Inscriptos (${discRegs.length})` : `Registered (${discRegs.length})`}</div>
+                          <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                            <span style={{ color: 'var(--green)', fontWeight: 600 }}>💰 {Object.values(checks).filter(c=>c.paid).length}/{discRegs.length}</span>
+                            <span style={{ color: 'var(--blue)', fontWeight: 600 }}>📄 {Object.values(checks).filter(c=>c.waiver).length}/{discRegs.length}</span>
+                            <span style={{ color: 'var(--gold)', fontWeight: 600 }}>🏥 {Object.values(checks).filter(c=>c.medical).length}/{discRegs.length}</span>
+                          </div>
+                        </div>
+                        {discRegs.length === 0 ? <Empty label={L ? 'Sin inscriptos' : 'No athletes'} /> : discRegs.map((r, i) => {
+                          const a = r.athletes; if (!a) return null; const c = checks[a.id] || {}
+                          return (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--blue)', overflow: 'hidden', flexShrink: 0 }}>
+                                {a.photo_url ? <img src={a.photo_url} style={{ width: 28, height: 28, objectFit: 'cover' }}/> : a.full_name?.[0]}
+                              </div>
+                              <Bib n={a.bib} />
+                              <span style={{ flex: 1, fontWeight: 600, fontSize: 13, minWidth: 100 }}>{a.full_name}</span>
+                              <span style={{ fontSize: 12 }}>{getFlag(a.country)} {a.country}</span>
+                              <CatBadge cat={r.category} />
+                              {['paid','waiver','medical'].map(field => (
+                                <button key={field} onClick={() => setCheck(a.id, field, !c[field])} title={field}
+                                  style={{ width: 22, height: 22, borderRadius: 5, border: `1.5px solid ${c[field] ? 'var(--green)' : 'var(--border)'}`, background: c[field] ? 'var(--green)' : 'transparent', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {c[field] && '✓'}
+                                </button>
+                              ))}
+                              {a.whatsapp && <a href={`https://wa.me/${a.whatsapp.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" style={{ color: 'var(--green)' }}><Phone size={13}/></a>}
+                              {a.instagram && <a href={`https://instagram.com/${a.instagram.replace('@','')}`} target="_blank" rel="noreferrer" style={{ color: '#C13584' }}><Instagram size={13}/></a>}
+                            </div>
+                          )
+                        })}
+                      </Card>
+                    </div>
                   )}
 
-                  {/* RESULTS */}
-                  {activeSub === 'results' && (
-                    <QuickResults athletes={athletes} registrations={discRegs} discipline={activeDisc} event={selectedEvent} lang={lang} />
-                  )}
+                  {activeSub === 'results' && <Card><Empty label={L ? 'Los resultados aparecen aquí después de cronometrar.' : 'Results appear here after timing.'} /></Card>}
                 </>
               )}
             </div>
@@ -188,139 +248,26 @@ export default function Dashboard({ user, authLoading }) {
   )
 }
 
-// ── ATHLETE CHECKLIST ────────────────────────────────────────────────────────
-function AthleteChecklist({ athletes, registrations, lang, showToast }) {
-  const [checks, setChecks] = useState({}) // {athId: {paid, waiver, medical}}
-  const L = lang === 'es'
-
-  const setCheck = (athId, field, val) =>
-    setChecks(prev => ({ ...prev, [athId]: { ...(prev[athId] || {}), [field]: val } }))
-
-  const exportCSV = () => {
-    const rows = registrations.map(r => {
-      const a = athletes.find(x => x.id === r.athId)
-      if (!a) return null
-      const c = checks[a.id] || {}
-      return [a.bib, a.full_name, a.email, a.whatsapp, a.country, r.disc, r.cat, r.ag || '', c.paid ? 'yes' : 'no', c.waiver ? 'yes' : 'no', c.medical ? 'yes' : 'no']
-    }).filter(Boolean)
-    const header = ['bib', 'name', 'email', 'whatsapp', 'country', 'discipline', 'category', 'age_group', 'paid', 'waiver', 'medical']
-    const csv = [header, ...rows].map(r => r.join(',')).join('\n')
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'athletes.csv'; a.click()
-    showToast('CSV exported')
-  }
-
-  const paidCount = Object.values(checks).filter(c => c.paid).length
-  const waiverCount = Object.values(checks).filter(c => c.waiver).length
-  const medicalCount = Object.values(checks).filter(c => c.medical).length
-
-  return (
-    <Card>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
-          <span style={{ color: 'var(--green)', fontWeight: 600 }}>✓ {L ? 'Pagados' : 'Paid'}: {paidCount}/{registrations.length}</span>
-          <span style={{ color: 'var(--blue)', fontWeight: 600 }}>✓ {L ? 'Deslinde' : 'Waiver'}: {waiverCount}/{registrations.length}</span>
-          <span style={{ color: 'var(--gold)', fontWeight: 600 }}>✓ {L ? 'Apto méd.' : 'Medical'}: {medicalCount}/{registrations.length}</span>
-        </div>
-        <Btn onClick={exportCSV} variant="ghost" icon={<Download size={13} />} size="sm">Export CSV</Btn>
-      </div>
-
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Dorsal', 'Atleta', 'País', 'Cat.', L ? 'Pagado' : 'Paid', L ? 'Deslinde' : 'Waiver', L ? 'Apto méd.' : 'Medical', 'WhatsApp', 'Instagram'].map((h, i) => (
-                <th key={i} style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {registrations.map((r, i) => {
-              const a = athletes.find(x => x.id === r.athId)
-              if (!a) return null
-              const c = checks[a.id] || {}
-              return (
-                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '9px 10px' }}><Bib n={a.bib} /></td>
-                  <td style={{ padding: '9px 10px', fontWeight: 600 }}>{a.full_name}</td>
-                  <td style={{ padding: '9px 10px' }}>{getFlag(a.country)} {a.country}</td>
-                  <td style={{ padding: '9px 10px' }}><CatBadge cat={r.cat} /></td>
-                  {['paid', 'waiver', 'medical'].map(field => (
-                    <td key={field} style={{ padding: '9px 10px', textAlign: 'center' }}>
-                      <button onClick={() => setCheck(a.id, field, !c[field])}
-                        style={{ width: 22, height: 22, borderRadius: 5, border: `1.5px solid ${c[field] ? 'var(--green)' : 'var(--border)'}`, background: c[field] ? 'var(--green)' : 'transparent', color: '#fff', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {c[field] && '✓'}
-                      </button>
-                    </td>
-                  ))}
-                  <td style={{ padding: '9px 10px' }}>
-                    {a.whatsapp && <a href={`https://wa.me/${a.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ color: 'var(--green)', fontSize: 12 }}>📱 {a.whatsapp}</a>}
-                  </td>
-                  <td style={{ padding: '9px 10px' }}>
-                    {a.instagram && <a href={`https://instagram.com/${a.instagram.replace('@', '')}`} target="_blank" rel="noreferrer" style={{ color: '#C13584', fontSize: 12 }}>📷 {a.instagram}</a>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  )
-}
-
-// ── QUICK RESULTS ────────────────────────────────────────────────────────────
-function QuickResults({ athletes, registrations, discipline, event, lang }) {
-  const L = lang === 'es'
-  const isXC = ['short', 'standard'].includes(discipline)
-
-  return (
-    <Card>
-      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14 }}>
-        {L ? 'Resultados' : 'Results'} — {DISCIPLINES.find(d => d.id === discipline)?.label}
-      </div>
-      <Empty label={L ? 'Los resultados aparecen aquí después de cronometrar.' : 'Results appear here after timing.'} />
-    </Card>
-  )
-}
-
-// ── TEAM RELAY ────────────────────────────────────────────────────────────────
-function TeamRelayTiming({ athletes, registrations, lang }) {
+function TeamRelayTiming({ athletes, lang }) {
   const [teams, setTeams] = useState([])
-  const [teamName, setTeamName] = useState('')
-  const [memberBibs, setMemberBibs] = useState(['', '', '', ''])
+  const [name, setName] = useState(''); const [bibs, setBibs] = useState(['','','',''])
   const L = lang === 'es'
-
-  const addTeam = () => {
-    if (!teamName.trim()) return
-    const members = memberBibs.map(b => athletes.find(a => a.bib === b.trim())).filter(Boolean)
-    setTeams(prev => [...prev, { id: Date.now(), name: teamName, members, time: '', bandsLost: 0 }])
-    setTeamName(''); setMemberBibs(['', '', '', ''])
-  }
-
-  const sorted = [...teams].sort((a, b) => { const ta = parseFloat(a.time), tb = parseFloat(b.time); if (!ta) return 1; if (!tb) return -1; return ta - tb })
-
+  const addTeam = () => { if (!name.trim()) return; const members = bibs.map(b => athletes.find(a => a.bib === b.trim())).filter(Boolean); setTeams(p => [...p, { id: Date.now(), name, members, time: '' }]); setName(''); setBibs(['','','','']) }
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
       <Card>
-        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14 }}>{L ? 'Crear equipo' : 'Create team'}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          <input value={teamName} onChange={e => setTeamName(e.target.value)} placeholder={L ? 'Nombre del equipo' : 'Team name'} style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, fontSize: 13, fontFamily: 'var(--font)', outline: 'none' }} />
-          {memberBibs.map((b, i) => (
-            <input key={i} value={b} onChange={e => { const nm = [...memberBibs]; nm[i] = e.target.value; setMemberBibs(nm) }} placeholder={`${L ? 'Dorsal' : 'Bib'} ${i + 1}`} style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 7, fontSize: 13, fontFamily: 'var(--font)', outline: 'none' }} />
-          ))}
-        </div>
-        <Btn onClick={addTeam} size="sm">{L ? 'Agregar equipo' : 'Add team'}</Btn>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
-          {L ? '5 vueltas · 4 atletas · Última vuelta cooperativa · 3 pulseras/atleta' : '5 laps · 4 athletes · Last lap cooperative · 3 bands/athlete'}
-        </div>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>{L ? 'Crear equipo' : 'Create team'}</div>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder={L ? 'Nombre del equipo' : 'Team name'} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, fontSize: 13, fontFamily: 'var(--font)', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+        {bibs.map((b, i) => <input key={i} value={b} onChange={e => { const n=[...bibs]; n[i]=e.target.value; setBibs(n) }} placeholder={`Dorsal ${i+1}`} style={{ width: '100%', padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 7, fontSize: 13, fontFamily: 'var(--font)', outline: 'none', marginBottom: 6, boxSizing: 'border-box' }} />)}
+        <Btn onClick={addTeam} icon={<Plus size={12}/>} size="sm" style={{ marginTop: 4 }}>{L ? 'Agregar' : 'Add'}</Btn>
       </Card>
       <Card>
-        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14 }}>{L ? 'Resultados' : 'Results'} ({teams.length})</div>
-        {sorted.length === 0 ? <Empty label={L ? 'Sin equipos' : 'No teams'} /> : sorted.map((t, pos) => (
-          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-            <span style={{ fontWeight: 800, fontSize: 16, color: pos === 0 ? 'var(--gold)' : pos === 1 ? '#909BAA' : pos === 2 ? '#B8722A' : 'var(--text-muted)', width: 24 }}>{pos + 1}</span>
-            <span style={{ flex: 1, fontWeight: 600 }}>{t.name}</span>
-            <input value={t.time} onChange={e => setTeams(prev => prev.map(x => x.id === t.id ? { ...x, time: e.target.value } : x))} placeholder="m:ss.cc" style={{ width: 90, padding: '4px 7px', border: '1px solid var(--border)', borderRadius: 5, fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none' }} />
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>{L ? 'Resultados' : 'Results'} ({teams.length})</div>
+        {teams.length === 0 ? <Empty label={L ? 'Sin equipos' : 'No teams'} /> : teams.map((t, pos) => (
+          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ fontWeight: 800, color: pos===0?'var(--gold)':pos===1?'#909BAA':pos===2?'#B8722A':'var(--text-muted)', width: 20, fontSize: 14 }}>{pos+1}</span>
+            <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{t.name}</span>
+            <input value={t.time} onChange={e => setTeams(p => p.map(x => x.id===t.id?{...x,time:e.target.value}:x))} placeholder="m:ss.cc" style={{ width: 80, padding: '4px 7px', border: '1px solid var(--border)', borderRadius: 5, fontFamily: 'monospace', fontSize: 13, outline: 'none' }} />
           </div>
         ))}
       </Card>
