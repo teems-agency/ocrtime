@@ -1,20 +1,20 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { Moon, Sun, Globe, Menu, X, ChevronDown, LogOut, User, Settings } from 'lucide-react'
+import { Globe, Menu, X, ChevronDown, LogOut, User, Settings, LayoutDashboard } from 'lucide-react'
 import { getSupabase } from '../lib/supabase'
 
-const NAV_LINKS = [
-  { href: '/events', labelEs: 'Eventos', labelEn: 'Events' },
-  { href: '/results', labelEs: 'Resultados', labelEn: 'Results' },
-  { href: '/athletes', labelEs: 'Atletas', labelEn: 'Athletes' },
-  { href: '/pricing', labelEs: 'Precios', labelEn: 'Pricing' },
+const NAV = [
+  { href: '/events',  es: 'Eventos',    en: 'Events' },
+  { href: '/results', es: 'Resultados', en: 'Results' },
+  { href: '/athletes',es: 'Atletas',    en: 'Athletes' },
+  { href: '/pricing', es: 'Precios',    en: 'Pricing' },
 ]
 
-export default function Navbar({ user, lang, setLang, darkMode, setDarkMode }) {
+export default function Navbar({ user, lang = 'es', setLang, darkMode, setDarkMode }) {
   const router = useRouter()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [userMenu, setUserMenu] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const L = lang === 'es'
 
   const handleSignOut = async () => {
@@ -22,123 +22,134 @@ export default function Navbar({ user, lang, setLang, darkMode, setDarkMode }) {
     router.push('/')
   }
 
-  const initials = user?.user_metadata?.full_name
-    ? user.user_metadata.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-    : user?.email?.[0]?.toUpperCase() || '?'
+  const initial = user?.user_metadata?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || '?'
+  const isAdmin = user?.email === 'info@ocrtime.com'
 
   return (
     <nav style={{
-      background: 'var(--navy)',
+      background: 'rgba(8,14,31,0.92)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      borderBottom: '1px solid rgba(0,212,255,0.1)',
       position: 'sticky', top: 0, zIndex: 200,
-      borderBottom: '1px solid rgba(255,255,255,0.06)'
     }}>
-      <div style={{
-        maxWidth: 1200, margin: '0 auto',
-        display: 'flex', alignItems: 'center',
-        padding: '0 24px', height: 54,
-      }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', padding: '0 24px', height: 56 }}>
+
         {/* Logo */}
-        <Link href="/" style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          marginRight: 32, textDecoration: 'none', flexShrink: 0
-        }}>
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <circle cx="14" cy="14" r="12" stroke="white" strokeWidth="1.5" opacity="0.3"/>
-            <circle cx="14" cy="14" r="8" stroke="white" strokeWidth="1.5" opacity="0.6"/>
-            {Array.from({length: 12}, (_, i) => {
-              const angle = (i * 30 - 90) * Math.PI / 180
-              const r1 = 11, r2 = 13
-              return (
-                <line key={i}
-                  x1={14 + r1 * Math.cos(angle)} y1={14 + r1 * Math.sin(angle)}
-                  x2={14 + r2 * Math.cos(angle)} y2={14 + r2 * Math.sin(angle)}
-                  stroke="white" strokeWidth="1.5" opacity="0.8"
-                />
-              )
-            })}
-            <text x="14" y="18" textAnchor="middle" fill="white" fontSize="8" fontWeight="900" fontFamily="sans-serif">OCR</text>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 36, textDecoration: 'none', flexShrink: 0 }}>
+          <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+            <circle cx="14" cy="15" r="10" stroke="white" strokeWidth="2"/>
+            <rect x="11" y="2" width="6" height="2.5" rx="1.2" fill="white"/>
+            <line x1="14" y1="5" x2="14" y2="7" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+            <line x1="14" y1="15" x2="18.5" y2="10.5" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+            <circle cx="14" cy="15" r="1.5" fill="white"/>
           </svg>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-            <span style={{ color: '#fff', fontWeight: 800, fontSize: 17, letterSpacing: '-0.03em' }}>OCR</span>
-            <span style={{ color: '#3B8FE8', fontWeight: 800, fontSize: 17, letterSpacing: '-0.03em' }}>TIME</span>
-          </div>
+          <span style={{ fontFamily: 'var(--font)', fontSize: 19, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1 }}>
+            <span style={{ color: '#fff' }}>OCR</span>
+            <span style={{ color: '#0066FF' }}>TIME</span>
+          </span>
         </Link>
 
-        {/* Desktop nav */}
-        <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: 2 }}>
-          {NAV_LINKS.map(({ href, labelEs, labelEn }) => (
-            <Link key={href} href={href} style={{
-              padding: '0 14px', height: 54, display: 'flex', alignItems: 'center',
-              color: router.pathname.startsWith(href) ? '#fff' : 'rgba(255,255,255,0.45)',
-              fontWeight: router.pathname.startsWith(href) ? 600 : 400,
-              fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap',
-              borderBottom: `2px solid ${router.pathname.startsWith(href) ? '#3B8FE8' : 'transparent'}`,
-              transition: 'color 0.15s',
-            }}>
-              {L ? labelEs : labelEn}
-            </Link>
-          ))}
+        {/* Desktop nav links */}
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: 0 }}>
+          {NAV.map(({ href, es, en }) => {
+            const active = router.pathname.startsWith(href)
+            return (
+              <Link key={href} href={href} style={{
+                padding: '0 14px', height: 56, display: 'flex', alignItems: 'center',
+                color: active ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontWeight: active ? 700 : 500, fontSize: 13, textDecoration: 'none',
+                borderBottom: `2px solid ${active ? 'var(--cyan)' : 'transparent'}`,
+                transition: 'color 0.15s, border-color 0.15s',
+                letterSpacing: '0.01em',
+              }}>
+                {L ? es : en}
+              </Link>
+            )
+          })}
           {user && (
             <Link href="/dashboard" style={{
-              padding: '0 14px', height: 54, display: 'flex', alignItems: 'center',
-              color: router.pathname.startsWith('/dashboard') ? '#F5A623' : 'rgba(255,255,255,0.45)',
-              fontWeight: router.pathname.startsWith('/dashboard') ? 600 : 400,
+              padding: '0 14px', height: 56, display: 'flex', alignItems: 'center',
+              color: router.pathname.startsWith('/dashboard') ? '#FFB800' : 'rgba(255,255,255,0.5)',
+              fontWeight: router.pathname.startsWith('/dashboard') ? 700 : 500,
               fontSize: 13, textDecoration: 'none',
-              borderBottom: `2px solid ${router.pathname.startsWith('/dashboard') ? '#F5A623' : 'transparent'}`,
+              borderBottom: `2px solid ${router.pathname.startsWith('/dashboard') ? '#FFB800' : 'transparent'}`,
             }}>
-              {L ? 'Admin' : 'Admin'}
+              Dashboard
+            </Link>
+          )}
+          {isAdmin && (
+            <Link href="/superadmin" style={{
+              padding: '0 14px', height: 56, display: 'flex', alignItems: 'center',
+              color: router.pathname === '/superadmin' ? 'var(--red)' : 'rgba(255,255,255,0.4)',
+              fontWeight: 700, fontSize: 11, textDecoration: 'none', letterSpacing: '0.08em',
+              borderBottom: `2px solid ${router.pathname === '/superadmin' ? 'var(--red)' : 'transparent'}`,
+            }}>
+              ADMIN
             </Link>
           )}
         </div>
 
         {/* Right controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {/* Lang */}
+          {/* Language toggle */}
           <button onClick={() => setLang(l => l === 'es' ? 'en' : 'es')}
-            style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 10px', color: '#fff', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Globe size={12} />
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(0,212,255,0.15)', borderRadius: 7, padding: '4px 10px', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontFamily: 'var(--font)', letterSpacing: '0.06em' }}>
+            <Globe size={11} />
             {lang === 'es' ? 'EN' : 'ES'}
-          </button>
-
-          {/* Dark mode */}
-          <button onClick={() => setDarkMode(d => !d)}
-            style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '5px 7px', color: '#fff', display: 'flex', alignItems: 'center' }}>
-            {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>
 
           {/* Auth */}
           {user ? (
             <div style={{ position: 'relative' }}>
-              <button onClick={() => setUserMenuOpen(!userMenuOpen)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 8px', color: '#fff' }}>
-                <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#3B8FE8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                  {initials}
+              <button onClick={() => setUserMenu(!userMenu)}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(0,102,255,0.15)', border: '1px solid rgba(0,102,255,0.3)', borderRadius: 8, padding: '5px 10px', color: '#fff', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                  {initial}
                 </div>
-                <ChevronDown size={12} />
+                <ChevronDown size={11} color="rgba(255,255,255,0.5)" />
               </button>
-              {userMenuOpen && (
-                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: 8, minWidth: 160, boxShadow: 'var(--shadow-md)', zIndex: 300 }}>
-                  <Link href="/profile" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', color: 'var(--text)', borderRadius: 5, fontSize: 13, textDecoration: 'none' }}>
-                    <User size={14} /> {L ? 'Mi perfil' : 'My profile'}
-                  </Link>
-                  <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', color: 'var(--text)', borderRadius: 5, fontSize: 13, textDecoration: 'none' }}>
-                    <Settings size={14} /> Dashboard
-                  </Link>
-                  <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
+
+              {userMenu && (
+                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 8, minWidth: 180, boxShadow: 'var(--shadow-lg), var(--glow-card)', zIndex: 300 }}>
+                  <div style={{ padding: '6px 10px', fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+                    {user.email}
+                  </div>
+                  {[
+                    ['/profile', <User size={13}/>, L ? 'Mi perfil' : 'My profile'],
+                    ['/dashboard', <LayoutDashboard size={13}/>, 'Dashboard'],
+                    ...(isAdmin ? [['/superadmin', <Settings size={13}/>, 'Super Admin']] : []),
+                  ].map(([href, icon, label]) => (
+                    <Link key={href} href={href} onClick={() => setUserMenu(false)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', color: 'var(--text-sec)', borderRadius: 6, fontSize: 13, textDecoration: 'none', transition: 'background 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      {icon}{label}
+                    </Link>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
                   <button onClick={handleSignOut}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', color: 'var(--red)', border: 'none', background: 'none', width: '100%', textAlign: 'left', fontSize: 13, borderRadius: 5 }}>
-                    <LogOut size={14} /> {L ? 'Salir' : 'Sign out'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', color: 'var(--red)', border: 'none', background: 'none', width: '100%', textAlign: 'left', fontSize: 13, borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font)' }}>
+                    <LogOut size={13} />{L ? 'Salir' : 'Sign out'}
                   </button>
                 </div>
               )}
             </div>
           ) : (
-            <Link href="/auth" style={{ padding: '6px 14px', background: '#3B8FE8', border: 'none', borderRadius: 7, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}>
+            <Link href="/auth" style={{
+              padding: '7px 16px', background: 'var(--blue)', border: 'none', borderRadius: 8,
+              color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none',
+              boxShadow: '0 2px 12px rgba(0,102,255,0.35)',
+              transition: 'all 0.15s',
+            }}>
               {L ? 'Ingresar' : 'Sign in'}
             </Link>
           )}
         </div>
       </div>
+
+      {/* Close dropdown on outside click */}
+      {userMenu && <div style={{ position: 'fixed', inset: 0, zIndex: 299 }} onClick={() => setUserMenu(false)} />}
     </nav>
   )
 }
